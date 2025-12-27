@@ -1,6 +1,12 @@
 #include "stereo-slam-node.hpp"
 
-#include<opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/calib3d.hpp>
+
+#include <iostream>
+#include <sstream>
+#include <ctime>
+#include <iomanip>
 
 using std::placeholders::_1;
 using std::placeholders::_2;
@@ -11,9 +17,12 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
 {
     stringstream ss(strDoRectify);
     ss >> boolalpha >> doRectify;
+    std::cout<<"do rectify: " << boolalpha << doRectify <<std::endl;
+
+
 
     if (doRectify){
-
+        std::cout <<"do rectify is true!" <<std::endl;
         cv::FileStorage fsSettings(strSettingsFile, cv::FileStorage::READ);
         if(!fsSettings.isOpened()){
             cerr << "ERROR: Wrong path to settings" << endl;
@@ -48,11 +57,21 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
         cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(cols_r,rows_r),CV_32F,M1r,M2r);
     }
 
-    left_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/left");
-    right_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/right");
+    std::cout <<"creating subscribers..." <<std::endl;
+    //left_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/left");
+    //std::cout <<"left image subscriber created" <<std::endl;
+    //right_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/right");
+    //std::cout <<"right image subscriber created" <<std::endl;
+    //left_sub.subscribe(this,"camera/left", rmw_qos_profile_sensor_data);
+    //right_sub.subscribe(this,"camera/right", rmw_qos_profile_sensor_data);
 
-    syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(10), *left_sub, *right_sub);
+    left_sub.subscribe(this,"camera/left");
+    right_sub.subscribe(this,"camera/right");
+
+    std::cout <<"subscribers created" <<std::endl;
+    syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(12), left_sub, right_sub);
     syncApproximate->registerCallback(&StereoSlamNode::GrabStereo, this);
+    std::cout <<"callback registerd" <<std::endl;
 }
 
 StereoSlamNode::~StereoSlamNode()
@@ -61,7 +80,14 @@ StereoSlamNode::~StereoSlamNode()
     m_SLAM->Shutdown();
 
     // Save camera trajectory
-    m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+    std::time_t t = std::time(nullptr);
+    std::tm tm = *std::localtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
+    std::string datetime = oss.str();
+
+    m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_" + datetime + ".txt" );
+    m_SLAM->SaveTrajectoryEuRoC("FullTrajectory_" + datetime + ".txt");
 }
 
 void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMsg::SharedPtr msgRight)

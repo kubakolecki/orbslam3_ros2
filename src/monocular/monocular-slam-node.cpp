@@ -23,6 +23,7 @@ MonocularSlamNode::~MonocularSlamNode()
 
     // Save camera trajectory
     m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+    m_SLAM->SaveTrajectoryEuRoC("FullTrajectory.txt");
 }
 
 void MonocularSlamNode::GrabImage(const ImageMsg::SharedPtr msg)
@@ -38,6 +39,6 @@ void MonocularSlamNode::GrabImage(const ImageMsg::SharedPtr msg)
         return;
     }
 
-    std::cout<<"one frame has been sent"<<std::endl;
+    //std::cout<<"one frame has been sent"<<std::endl;
     m_SLAM->TrackMonocular(m_cvImPtr->image, Utility::StampToSec(msg->header.stamp));
 }

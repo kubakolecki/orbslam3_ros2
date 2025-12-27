@@ -1,6 +1,7 @@
 #include "stereo-inertial-node.hpp"
 
 #include <opencv2/core/core.hpp>
+#include <opencv2/calib3d.hpp>
 
 using std::placeholders::_1;
 

@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.20)
 project(orbslam3)
 
 # You should set the PYTHONPATH to your own python site-packages path
-set(ENV{PYTHONPATH} "/opt/ros/foxy/lib/python3.8/site-packages/")
+# set(ENV{PYTHONPATH} "/opt/ros/jazzy/lib/python3.8/site-packages/")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules)
 
@@ -20,9 +20,12 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(OpenCV REQUIRED)
 find_package(Sophus REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(ORB_SLAM3 REQUIRED)
+
+message("Packages found")
 
 include_directories(
   include
@@ -40,24 +43,50 @@ add_executable(mono
 )
 ament_target_dependencies(mono rclcpp sensor_msgs cv_bridge ORB_SLAM3 Pangolin)
 
+message("added executable mono")
+
+#target_include_directories(mono PUBLIC
+#  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#  $<INSTALL_INTERFACE:include>
+#)
+
+get_target_property(dirs mono INCLUDE_DIRECTORIES)
+message("mono include dirs: ${dirs}")
+
 add_executable(rgbd
   src/rgbd/rgbd.cpp
   src/rgbd/rgbd-slam-node.cpp
 )
 ament_target_dependencies(rgbd rclcpp sensor_msgs cv_bridge message_filters ORB_SLAM3 Pangolin)
 
+message("added executable rgbd")
+
+get_target_property(dirs rgbd INCLUDE_DIRECTORIES)
+message("rgbd include dirs: ${dirs}")
+
 add_executable(stereo
   src/stereo/stereo.cpp
   src/stereo/stereo-slam-node.cpp
 )
-ament_target_dependencies(stereo rclcpp sensor_msgs cv_bridge message_filters
+ament_target_dependencies(stereo rclcpp sensor_msgs cv_bridge message_filters OpenCV
 ORB_SLAM3 Pangolin)
+
+message("added executable stereo")
+
+get_target_property(dirs stereo INCLUDE_DIRECTORIES)
+message("stereo include dirs: ${dirs}")
+
 
 add_executable(stereo-inertial
   src/stereo-inertial/stereo-inertial.cpp
   src/stereo-inertial/stereo-inertial-node.cpp
 )
-ament_target_dependencies(stereo-inertial rclcpp sensor_msgs cv_bridge ORB_SLAM3 Pangolin)
+ament_target_dependencies(stereo-inertial rclcpp sensor_msgs cv_bridge message_filters OpenCV ORB_SLAM3 Pangolin)
+
+message("added executable stereo-inertial")
+
+get_target_property(dirs stereo-inertial INCLUDE_DIRECTORIES)
+message("stereo-inertial include dirs: ${dirs}")
 
 install(TARGETS mono rgbd stereo stereo-inertial
   DESTINATION lib/${PROJECT_NAME})
