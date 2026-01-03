@@ -3,6 +3,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "orbslam3/msg/georeferenced_stereo_image.hpp"
 
 #include "message_filters/subscriber.h"
 #include "message_filters/synchronizer.h"
@@ -17,6 +19,10 @@
 
 #include "utility.hpp"
 
+#include <Eigen/Core>
+
+#include <vector>
+
 class StereoSlamNode : public rclcpp::Node
 {
 public:
@@ -29,6 +35,8 @@ private:
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> approximate_sync_policy;
 
     void GrabStereo(const sensor_msgs::msg::Image::SharedPtr msgRGB, const sensor_msgs::msg::Image::SharedPtr msgD);
+
+    void writePositionsOfPublishedStereoImagesToFile(const string &filename);
 
     ORB_SLAM3::System* m_SLAM;
 
@@ -45,6 +53,18 @@ private:
     message_filters::Subscriber<sensor_msgs::msg::Image> right_sub;
 
     std::shared_ptr<message_filters::Synchronizer<approximate_sync_policy> > syncApproximate;
+
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr posePublisher;
+    rclcpp::Publisher<orbslam3::msg::GeoreferencedStereoImage>::SharedPtr georeferencedStereoPublisher;
+
+    //float timeToWaintToPublishStereoImageInSeconds{1.0f};
+    //uint64_t lastTimePublishedStereoImage{0};
+    //bool hasFirstPoseBeenPublished{false};
+    float distanceThresholdToPublishStereoImage{0.25f}; //meters
+
+    Eigen::Vector3f lastPublishedPosition{Eigen::Vector3f::Zero()};
+
+    std::vector<Eigen::Vector3f> positionsOfPublishedStereoImages;
 };
 
 #endif

@@ -7,6 +7,7 @@
 #include <sstream>
 #include <ctime>
 #include <iomanip>
+#include <chrono>
 
 using std::placeholders::_1;
 using std::placeholders::_2;
@@ -65,13 +66,25 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     //left_sub.subscribe(this,"camera/left", rmw_qos_profile_sensor_data);
     //right_sub.subscribe(this,"camera/right", rmw_qos_profile_sensor_data);
 
+    auto paramOutputImageScalingDescription = rcl_interfaces::msg::ParameterDescriptor{};
+    paramOutputImageScalingDescription.description = "Distance threshold in meters to publish the next stereo image with georeference.";
+    this->declare_parameter<float>("distance_threshold_to_publish_stereo_image", 0.25, paramOutputImageScalingDescription);
+    distanceThresholdToPublishStereoImage = this->get_parameter("distance_threshold_to_publish_stereo_image").as_double();
+
+
     left_sub.subscribe(this,"camera/left");
     right_sub.subscribe(this,"camera/right");
+
+    posePublisher = this->create_publisher<geometry_msgs::msg::PoseStamped>("orbslam3/pose", 10);
+    georeferencedStereoPublisher = this->create_publisher<orbslam3::msg::GeoreferencedStereoImage>("orbslam3/georeferenced_stereo_image", 10);
 
     std::cout <<"subscribers created" <<std::endl;
     syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(12), left_sub, right_sub);
     syncApproximate->registerCallback(&StereoSlamNode::GrabStereo, this);
     std::cout <<"callback registerd" <<std::endl;
+
+
+    positionsOfPublishedStereoImages.reserve(4096);
 }
 
 StereoSlamNode::~StereoSlamNode()
@@ -88,10 +101,17 @@ StereoSlamNode::~StereoSlamNode()
 
     m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_" + datetime + ".txt" );
     m_SLAM->SaveTrajectoryEuRoC("FullTrajectory_" + datetime + ".txt");
+
+    positionsOfPublishedStereoImages.shrink_to_fit();
+
+
+    writePositionsOfPublishedStereoImagesToFile("PublishedStereoImagePositions_" + datetime + ".txt");
 }
 
 void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMsg::SharedPtr msgRight)
 {
+    //auto start = std::chrono::steady_clock::now();
+    
     // Copy the ros rgb image message to cv::Mat.
     try
     {
@@ -114,14 +134,85 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         return;
     }
 
-    if (doRectify){
+    Sophus::SE3f pose;
+
+    if (doRectify)
+    {
         cv::Mat imLeft, imRight;
         cv::remap(cv_ptrLeft->image,imLeft,M1l,M2l,cv::INTER_LINEAR);
         cv::remap(cv_ptrRight->image,imRight,M1r,M2r,cv::INTER_LINEAR);
-        m_SLAM->TrackStereo(imLeft, imRight, Utility::StampToSec(msgLeft->header.stamp));
+        pose = m_SLAM->TrackStereo(imLeft, imRight, Utility::StampToSec(msgLeft->header.stamp));
     }
     else
     {
-        m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
+        pose = m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
     }
+
+    pose = pose.inverse();
+
+    const auto unit_quaternion = pose.unit_quaternion();
+    const auto translation = pose.translation();
+
+    //std::cout << "quaternion:\n";
+    //std::cout << unit_quaternion <<"\n";
+    //std::cout << "translation:\n";
+    //std::cout << translation <<"\n";
+
+    geometry_msgs::msg::PoseStamped poseMsg;
+    poseMsg.header = msgLeft->header;
+    poseMsg.header.frame_id = "world";
+    poseMsg.pose.position.x = translation(0);
+    poseMsg.pose.position.y = translation(1);
+    poseMsg.pose.position.z = translation(2);
+    poseMsg.pose.orientation.x = unit_quaternion.x();
+    poseMsg.pose.orientation.y = unit_quaternion.y();
+    poseMsg.pose.orientation.z = unit_quaternion.z();
+    poseMsg.pose.orientation.w = unit_quaternion.w();
+    posePublisher->publish(poseMsg);
+    //hasFirstPoseBeenPublished = true;
+    
+
+    //auto end = std::chrono::steady_clock::now();
+    //auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    //std::cout << "Elapsed time: " << duration_ms.count() << " ms\n";
+
+
+    Eigen::Vector3f differenceInPosition = translation - lastPublishedPosition;
+    float distanceMoved = differenceInPosition.norm();
+
+    if (distanceMoved > distanceThresholdToPublishStereoImage)
+    {
+        orbslam3::msg::GeoreferencedStereoImage geoStereoMsg;
+        //geoStereoMsg.header = msgLeft->header;
+        //geoStereoMsg.header.frame_id = "world";
+        geoStereoMsg.pose = poseMsg;
+        geoStereoMsg.image_left = *msgLeft;
+        geoStereoMsg.image_right = *msgRight;
+        georeferencedStereoPublisher->publish(geoStereoMsg);
+        lastPublishedPosition = translation;
+
+        positionsOfPublishedStereoImages.push_back(translation);
+    }
+
+}
+
+void StereoSlamNode::writePositionsOfPublishedStereoImagesToFile(const string &filename)
+{
+    std::ofstream file;
+    file.open(filename);
+    if (!file.is_open())
+    {
+        RCLCPP_ERROR(this->get_logger(), "Could not open file %s for writing positions of published stereo images.", filename.c_str());
+        return;
+    }
+
+    file << std::fixed << std::setprecision(6);
+    for (const auto& position : positionsOfPublishedStereoImages)
+    {
+        file << position(0) << " " << position(1) << " " << position(2) << "\n";
+    }
+
+    file.close();
+
+
 }
