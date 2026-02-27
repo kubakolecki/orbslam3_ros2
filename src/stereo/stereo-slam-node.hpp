@@ -3,7 +3,9 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/point_cloud.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "orbslam3/msg/georeferenced_stereo_image.hpp"
 
 #include "message_filters/subscriber.h"
@@ -36,8 +38,6 @@ private:
 
     void GrabStereo(const sensor_msgs::msg::Image::SharedPtr msgRGB, const sensor_msgs::msg::Image::SharedPtr msgD);
 
-    void writePositionsOfPublishedStereoImagesToFile(const string &filename);
-
     ORB_SLAM3::System* m_SLAM;
 
     bool doRectify;
@@ -45,6 +45,9 @@ private:
 
     cv_bridge::CvImageConstPtr cv_ptrLeft;
     cv_bridge::CvImageConstPtr cv_ptrRight;
+
+    //cv::Mat previousLeftImage;
+    //cv::Mat previousRightImage;
 
     //std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image> > left_sub;
     //std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image> > right_sub;
@@ -56,6 +59,11 @@ private:
 
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr posePublisher;
     rclcpp::Publisher<orbslam3::msg::GeoreferencedStereoImage>::SharedPtr georeferencedStereoPublisher;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pathPublisher;
+
+    nav_msgs::msg::Path pathMsg;
+
+
 
     //float timeToWaintToPublishStereoImageInSeconds{1.0f};
     //uint64_t lastTimePublishedStereoImage{0};
@@ -64,7 +72,8 @@ private:
 
     Eigen::Vector3f lastPublishedPosition{Eigen::Vector3f::Zero()};
 
-    std::vector<Eigen::Vector3f> positionsOfPublishedStereoImages;
+    void writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*>& mapPoints, const std::vector<cv::KeyPoint>& keyPoints,const cv::Mat& image, const vector<double>& depths);
+
 };
 
 #endif

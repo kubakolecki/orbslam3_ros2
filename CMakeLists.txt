@@ -20,7 +20,11 @@ find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_eigen REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Sophus REQUIRED)
@@ -78,8 +82,11 @@ add_executable(stereo
   src/stereo/stereo.cpp
   src/stereo/stereo-slam-node.cpp
 )
-ament_target_dependencies(stereo rclcpp rosidl_default_generators sensor_msgs geometry_msgs cv_bridge message_filters OpenCV
+ament_target_dependencies(stereo rclcpp rosidl_default_generators sensor_msgs geometry_msgs nav_msgs cv_bridge tf2 tf2_geometry_msgs tf2_eigen message_filters OpenCV
 ORB_SLAM3 Pangolin)
+
+set_property(TARGET stereo PROPERTY CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 message("added executable stereo")
 
