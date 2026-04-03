@@ -17,7 +17,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
+find_package(ros_common_messages REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -30,11 +30,6 @@ find_package(OpenCV REQUIRED)
 find_package(Sophus REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(ORB_SLAM3 REQUIRED)
-
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/GeoreferencedStereoImage.msg"
-  DEPENDENCIES geometry_msgs sensor_msgs
-)
 
 ament_export_dependencies(rosidl_default_runtime)
 
@@ -71,7 +66,7 @@ add_executable(rgbd
   src/rgbd/rgbd.cpp
   src/rgbd/rgbd-slam-node.cpp
 )
-ament_target_dependencies(rgbd rclcpp rosidl_default_generators sensor_msgs cv_bridge message_filters ORB_SLAM3 Pangolin)
+ament_target_dependencies(rgbd rclcpp sensor_msgs cv_bridge message_filters ORB_SLAM3 Pangolin)
 
 message("added executable rgbd")
 
@@ -82,8 +77,8 @@ add_executable(stereo
   src/stereo/stereo.cpp
   src/stereo/stereo-slam-node.cpp
 )
-ament_target_dependencies(stereo rclcpp rosidl_default_generators sensor_msgs geometry_msgs nav_msgs cv_bridge tf2 tf2_geometry_msgs tf2_eigen message_filters OpenCV
-ORB_SLAM3 Pangolin)
+
+ament_target_dependencies(stereo ros_common_messages rclcpp sensor_msgs geometry_msgs nav_msgs cv_bridge tf2 tf2_geometry_msgs tf2_eigen message_filters OpenCV ORB_SLAM3 Pangolin)
 
 set_property(TARGET stereo PROPERTY CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -108,11 +103,6 @@ message("stereo-inertial include dirs: ${dirs}")
 install(TARGETS mono rgbd stereo stereo-inertial
   DESTINATION lib/${PROJECT_NAME})
 
-rosidl_target_interfaces(stereo ${PROJECT_NAME} "rosidl_typesupport_cpp")  #export the interface for the stereo node, THIS IS VERY IMPORTANT!!!!!
-
-# Install launch files.
-#install(DIRECTORY launch config vocabulary
-#  DESTINATION share/${PROJECT_NAME}/)
 
 ament_package()
 

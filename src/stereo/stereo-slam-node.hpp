@@ -6,7 +6,7 @@
 #include "sensor_msgs/msg/point_cloud.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
-#include "orbslam3/msg/georeferenced_stereo_image.hpp"
+#include "ros_common_messages/msg/georeferenced_stereo_image.hpp"
 
 #include "message_filters/subscriber.h"
 #include "message_filters/synchronizer.h"
@@ -58,7 +58,7 @@ private:
     std::shared_ptr<message_filters::Synchronizer<approximate_sync_policy> > syncApproximate;
 
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr posePublisher;
-    rclcpp::Publisher<orbslam3::msg::GeoreferencedStereoImage>::SharedPtr georeferencedStereoPublisher;
+    rclcpp::Publisher<ros_common_messages::msg::GeoreferencedStereoImage>::SharedPtr georeferencedStereoPublisher;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pathPublisher;
 
     nav_msgs::msg::Path pathMsg;

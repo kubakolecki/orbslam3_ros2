@@ -1,4 +1,0 @@
-geometry_msgs/PoseStamped pose
-sensor_msgs/Image image_left
-sensor_msgs/Image image_right
-sensor_msgs/PointCloud sparse_depth_information

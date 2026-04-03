@@ -86,7 +86,7 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     right_sub.subscribe(this,"camera/right");
 
     posePublisher = this->create_publisher<geometry_msgs::msg::PoseStamped>("orbslam3/pose", 10);
-    georeferencedStereoPublisher = this->create_publisher<orbslam3::msg::GeoreferencedStereoImage>("orbslam3/georeferenced_stereo_image", 10);
+    georeferencedStereoPublisher = this->create_publisher<ros_common_messages::msg::GeoreferencedStereoImage>("orbslam3/georeferenced_stereo_image", 10);
     pathPublisher = this->create_publisher<nav_msgs::msg::Path>("orbslam3/path", 10);
 
     pathMsg.header.frame_id = "world";
@@ -209,12 +209,24 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
 
     if (distanceMoved > distanceThresholdToPublishStereoImage)
     {
-        orbslam3::msg::GeoreferencedStereoImage geoStereoMsg;
+        ros_common_messages::msg::GeoreferencedStereoImage geoStereoMsg;
         //geoStereoMsg.header = msgLeft->header;
         //geoStereoMsg.header.frame_id = "world";
         geoStereoMsg.pose = poseMsg;
-        geoStereoMsg.image_left = *msgLeft;
-        geoStereoMsg.image_right = *msgRight;
+
+        //old implementation: feding the original images, not the ortorectified ones
+        //geoStereoMsg.image_left = *msgLeft;
+        //geoStereoMsg.image_right = *msgRight;
+
+
+        //new implementation: we need to fed ortorectfied images as the keypoints are tracked on the ortorectified images,
+        //so we need to fed the same images to the georeferenced stereo image message, otherwise the keypoints and depth information will not be correct
+        const auto imageFedToTrackerLeft = m_SLAM->GetImageFedToTrackerLeft(); //TODO can call those lines direct inside the call of cv_bridge::CvImage
+        const auto imageFedToTrackerRight = m_SLAM->GetImageFedToTrackerRight();
+        geoStereoMsg.image_left = *cv_bridge::CvImage(msgLeft->header, "mono8", imageFedToTrackerLeft).toImageMsg();
+        geoStereoMsg.image_right = *cv_bridge::CvImage(msgRight->header, "mono8", imageFedToTrackerRight).toImageMsg();
+
+        //auto msg = cv_bridge::CvImage(header, "bgr8", frame).toImageMsg();
         
         lastPublishedPosition = translation;
 
@@ -278,7 +290,7 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
                 geometry_msgs::msg::Point32 point;
                 point.x = keypoint.pt.x;
                 point.y = keypoint.pt.y;
-                point.z = pointInCameraTf.z();    
+                point.z = pointInCameraTf.z();
                 return point;
             });
 
@@ -294,17 +306,16 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
 
         RCLCPP_INFO(this->get_logger(), "Number of landmarks is = %zu, number of keypoints is = %zu, number of depth points in georeferenced stereo image is = %zu", trackedLandmarks.size(), trackedKeypoints.size(), geoStereoMsg.sparse_depth_information.points.size());
 
-        RCLCPP_INFO(this->get_logger(), "Publishing georeferenced stereo image with %zu depth points.", geoStereoMsg.sparse_depth_information.points.size());
+        RCLCPP_INFO(this->get_logger(), "Publishing georeferenced stereo image with %zu map points.", geoStereoMsg.sparse_depth_information.points.size());
         georeferencedStereoPublisher->publish(geoStereoMsg);
         
         //writeMapPointsToFile(trackedLandmarks, trackedKeypoints, previousLeftImage);
-        writeMapPointsToFile(trackedLandmarks, trackedKeypoints, cv_ptrLeft->image, depths);
+        //writeMapPointsToFile(trackedLandmarks, trackedKeypoints, imageFedToTrackerLeft, depths);
 
     }
 
 
-    //previousLeftImage = cv_ptrLeft->image.clone();
-    //previousRightImage = cv_ptrRight->image.clone();
+
 }
 
 void StereoSlamNode::writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*>& mapPoints, const std::vector<cv::KeyPoint>& keyPoints,const cv::Mat& image, const vector<double>& depths)
@@ -361,6 +372,7 @@ void StereoSlamNode::writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*
     cv::drawKeypoints(image, keyPointsForMapPoints, imageWithKeypoints, cv::Scalar(0,255,0));
 
     //printing depths on keypoints
+    /*
     for (size_t i=0; i<keyPointsForMapPoints.size(); ++i)
     {
         //const double depth = depthsForMapPoints[i];
@@ -369,7 +381,7 @@ void StereoSlamNode::writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*
         depthText << std::fixed << std::setprecision(1) << depth;
         cv::putText(imageWithKeypoints, depthText.str(), keyPointsForMapPoints[i].pt + cv::Point2f(1.0,1.0), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(0,0,255), 2, cv::LINE_AA);
     }
-
+    */
 
     const std::string imageFilename = "MapPointsImage_" + datetime + ".png";
     cv::imwrite(imageFilename, imageWithKeypoints);
