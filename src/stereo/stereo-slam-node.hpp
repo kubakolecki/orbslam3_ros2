@@ -60,10 +60,19 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr posePublisher;
     rclcpp::Publisher<ros_common_messages::msg::GeoreferencedStereoImage>::SharedPtr georeferencedStereoPublisher;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pathPublisher;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr stereoRectifiedLeftPublisher;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr stereoRectifiedRightPublisher;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr keypointVisualizationPublisher;
 
     nav_msgs::msg::Path pathMsg;
 
-
+    bool doPublishStereorectifiedImages{false};
+    bool doWritePosesToTextFile{false};
+    bool doPublishTrackedKeypointsVisualization{false};
+    bool doSaveLocalMapToFile{false};
+    std::string pathToSaveLocalMap{};
+    std::string pathToSavePoses{};
+    std::ofstream posesOutputFile;
 
     //float timeToWaintToPublishStereoImageInSeconds{1.0f};
     //uint64_t lastTimePublishedStereoImage{0};
@@ -72,6 +81,7 @@ private:
 
     Eigen::Vector3f lastPublishedPosition{Eigen::Vector3f::Zero()};
 
+    std::string stampToString(builtin_interfaces::msg::Time stamp) const;
     void writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*>& mapPoints, const std::vector<cv::KeyPoint>& keyPoints,const cv::Mat& image, const vector<double>& depths);
 
 };

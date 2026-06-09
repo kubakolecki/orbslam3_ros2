@@ -18,6 +18,7 @@
 #include <chrono>
 #include <algorithm>
 #include <ranges>
+#include <filesystem>
 
 using std::placeholders::_1;
 using std::placeholders::_2;
@@ -26,11 +27,41 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
 :   Node("ORB_SLAM3_ROS2"),
     m_SLAM(pSLAM)
 {
+    auto paramDoPublishStereorectifiedImagesDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramDoWritePosesToTextFileDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramPathToSavePosesDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramDistanceThresholdToPublishStereoImageDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramDoPublishTrackedKeypointsVisualizationDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramDoSaveLocalMapToFileDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramPathToSaveLocalMapDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+
+    
+    paramDoPublishStereorectifiedImagesDescription.description = "If True, stereorectified images provided by orbslam are published. The timestamp is same as timestamp of computed pose.";
+    paramDoWritePosesToTextFileDescription.description = "If True, poses are written to a text file.";
+    paramPathToSavePosesDescription.description = "The path to file where the poses will be saved if do_write_poses_to_text_file is true.";
+    paramDistanceThresholdToPublishStereoImageDescription.description = "Distance threshold in meters to publish the next stereo image with georeference.";
+    paramDoPublishTrackedKeypointsVisualizationDescription.description = "If true, the visualization of keypoints is publshed.";
+    paramDoSaveLocalMapToFileDescription.description = "If true, the local map is saved to a file.";
+    paramPathToSaveLocalMapDescription.description = "The path where the local map will be saved if do_save_local_map_to_file is true.";
+
+    this->declare_parameter<bool>("do_publish_stereorectified_images", "true", paramDoPublishStereorectifiedImagesDescription);
+    this->declare_parameter<bool>("do_write_poses_to_text_file", "true", paramDoWritePosesToTextFileDescription);
+    this->declare_parameter<std::string>("path_to_save_poses", "poses.txt", paramPathToSavePosesDescription);
+    this->declare_parameter<float>("distance_threshold_to_publish_stereo_image", 0.25, paramDistanceThresholdToPublishStereoImageDescription);
+    this->declare_parameter<bool>("do_publish_tracked_keypoints_visualization", "true", paramDoPublishTrackedKeypointsVisualizationDescription);
+    this->declare_parameter<bool>("do_save_local_map_to_file", "true", paramDoSaveLocalMapToFileDescription);
+    this->declare_parameter<std::string>("path_to_save_local_map", "", paramPathToSaveLocalMapDescription);
+
+    doPublishStereorectifiedImages = this->get_parameter("do_publish_stereorectified_images").as_bool();
+    doWritePosesToTextFile = this->get_parameter("do_write_poses_to_text_file").as_bool();
+    distanceThresholdToPublishStereoImage = this->get_parameter("distance_threshold_to_publish_stereo_image").as_double();
+    doPublishTrackedKeypointsVisualization = this->get_parameter("do_publish_tracked_keypoints_visualization").as_bool();
+    doSaveLocalMapToFile = this->get_parameter("do_save_local_map_to_file").as_bool();
+    pathToSaveLocalMap = this->get_parameter("path_to_save_local_map").as_string();
+    pathToSavePoses = this->get_parameter("path_to_save_poses").as_string();
     stringstream ss(strDoRectify);
     ss >> boolalpha >> doRectify;
     std::cout<<"do rectify: " << boolalpha << doRectify <<std::endl;
-
-
 
     if (doRectify){
         std::cout <<"do rectify is true!" <<std::endl;
@@ -68,18 +99,13 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
         cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(cols_r,rows_r),CV_32F,M1r,M2r);
     }
 
-    std::cout <<"creating subscribers..." <<std::endl;
+    //std::cout <<"creating subscribers..." <<std::endl;
     //left_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/left");
     //std::cout <<"left image subscriber created" <<std::endl;
     //right_sub = std::make_shared<message_filters::Subscriber<ImageMsg> >(shared_ptr<rclcpp::Node>(this), "camera/right");
     //std::cout <<"right image subscriber created" <<std::endl;
     //left_sub.subscribe(this,"camera/left", rmw_qos_profile_sensor_data);
     //right_sub.subscribe(this,"camera/right", rmw_qos_profile_sensor_data);
-
-    auto paramOutputImageScalingDescription = rcl_interfaces::msg::ParameterDescriptor{};
-    paramOutputImageScalingDescription.description = "Distance threshold in meters to publish the next stereo image with georeference.";
-    this->declare_parameter<float>("distance_threshold_to_publish_stereo_image", 0.25, paramOutputImageScalingDescription);
-    distanceThresholdToPublishStereoImage = this->get_parameter("distance_threshold_to_publish_stereo_image").as_double();
 
 
     left_sub.subscribe(this,"camera/left");
@@ -88,14 +114,38 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     posePublisher = this->create_publisher<geometry_msgs::msg::PoseStamped>("orbslam3/pose", 10);
     georeferencedStereoPublisher = this->create_publisher<ros_common_messages::msg::GeoreferencedStereoImage>("orbslam3/georeferenced_stereo_image", 10);
     pathPublisher = this->create_publisher<nav_msgs::msg::Path>("orbslam3/path", 10);
+    stereoRectifiedLeftPublisher = this->create_publisher<sensor_msgs::msg::Image>("orbslam3/stereo_rectified_left", 10);
+    stereoRectifiedRightPublisher = this->create_publisher<sensor_msgs::msg::Image>("orbslam3/stereo_rectified_right", 10);
+    keypointVisualizationPublisher = this->create_publisher<sensor_msgs::msg::Image>("orbslam3/keypoint_visualization", 10);
 
     pathMsg.header.frame_id = "world";
     pathMsg.poses.reserve(4096);
 
-    std::cout <<"subscribers created" <<std::endl;
     syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(12), left_sub, right_sub);
     syncApproximate->registerCallback(&StereoSlamNode::GrabStereo, this);
-    std::cout <<"callback registerd" <<std::endl;
+
+    if (doWritePosesToTextFile)
+    {
+        //std::cout <<"doWritePosesToTextFile is true, opening file for writing poses..." <<std::endl;
+        //std::time_t t = std::time(nullptr);
+        //std::tm tm = *std::localtime(&t);
+        //std::ostringstream oss;
+        //oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
+        //const std::string datetime = oss.str();
+        //const std::string filename = "Poses_" + datetime + ".txt";
+        posesOutputFile.open(pathToSavePoses);
+        posesOutputFile << "timestamp_sec,timestamp_nanosec,position_x,position_y,position_z,quaternion_w,quaternion_x,quaternion_y,quaternion_z\n";
+    }
+
+    if (doSaveLocalMapToFile)
+    {
+        if (!std::filesystem::exists(pathToSaveLocalMap))
+        {
+            RCLCPP_INFO(this->get_logger(), "Directory %s does not exist. Creating directory.", pathToSaveLocalMap.c_str());   
+            std::filesystem::create_directories(pathToSaveLocalMap);    
+        }
+        
+    }
 
 }
 
@@ -104,15 +154,20 @@ StereoSlamNode::~StereoSlamNode()
     // Stop all threads
     m_SLAM->Shutdown();
 
-    // Save camera trajectory
-    std::time_t t = std::time(nullptr);
-    std::tm tm = *std::localtime(&t);
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
-    std::string datetime = oss.str();
+    if (doWritePosesToTextFile)
+    {
+        posesOutputFile.close();
+    }
 
-    m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_" + datetime + ".txt" );
-    m_SLAM->SaveTrajectoryEuRoC("FullTrajectory_" + datetime + ".txt");
+    // Save camera trajectory
+    //std::time_t t = std::time(nullptr);
+    //std::tm tm = *std::localtime(&t);
+    //std::ostringstream oss;
+    //oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
+    //std::string datetime = oss.str();
+
+    //m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_" + datetime + ".txt" );
+    m_SLAM->SaveTrajectoryEuRoC("FullTrajectory_.txt");
 
 
 
@@ -146,6 +201,8 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
 
     Sophus::SE3f pose;
 
+    const auto timeSLAMEstimationStart {std::chrono::steady_clock::now()};
+
     if (doRectify)
     {
         cv::Mat imLeft, imRight;
@@ -158,7 +215,12 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         pose = m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
     }
 
+    const auto timeSLAMEstimationEnd {std::chrono::steady_clock::now()};
+    const auto durationSLAMEstimation_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeSLAMEstimationEnd - timeSLAMEstimationStart)};
+   
 
+
+    const auto timeOutputHandlingStart {std::chrono::steady_clock::now()};
 
     //RCLCPP_INFO(this->get_logger(), "Tracked keypoints: %zu , tracked landmarks: %zu", trackedKeypoints.size(), trackedLandmarks.size());
 
@@ -191,8 +253,22 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
     poseMsg.pose.orientation.w = unit_quaternion.w();
     posePublisher->publish(poseMsg);
 
+    if (doWritePosesToTextFile)
+    {
+        posesOutputFile << poseMsg.header.stamp.sec << "," <<std::setfill('0') << std::setw(9) << poseMsg.header.stamp.nanosec << ",";
+        posesOutputFile <<std::fixed << std::setprecision(6) << poseMsg.pose.position.x << "," << poseMsg.pose.position.y << "," << poseMsg.pose.position.z << ",";
+        posesOutputFile <<std::fixed << std::setprecision(14) << poseMsg.pose.orientation.w << "," << poseMsg.pose.orientation.x << "," << poseMsg.pose.orientation.y << "," << poseMsg.pose.orientation.z << "\n";
+    }
+
+
     pathMsg.poses.push_back(poseMsg);
     pathPublisher->publish(pathMsg);
+
+    if (doPublishStereorectifiedImages)
+    {
+        stereoRectifiedLeftPublisher->publish(*cv_bridge::CvImage(poseMsg.header, "mono8", m_SLAM->GetImageFedToTrackerLeft()).toImageMsg());
+        stereoRectifiedRightPublisher->publish(*cv_bridge::CvImage(poseMsg.header, "mono8", m_SLAM->GetImageFedToTrackerRight()).toImageMsg());
+    }
 
 
 
@@ -277,7 +353,9 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
             });
         */
 
-        auto valid_map_point_indices = std::views::iota(size_t{0}, trackedLandmarks.size()) | std::views::filter([&trackedLandmarks](size_t i){ return trackedLandmarks[i] != nullptr; });
+        auto valid_map_point_indices =  std::views::iota(size_t{0}, trackedLandmarks.size()) |
+                                        std::views::filter([&trackedLandmarks](size_t i){ return trackedLandmarks[i] != nullptr; }) |
+                                        std::views::filter([&trackedLandmarks](size_t i){ return trackedLandmarks[i]->nObs >= 4; }); //TODO: make this a parameter!
         std::ranges::transform(valid_map_point_indices, std::back_inserter(geoStereoMsg.sparse_depth_information.points),
             [&trackedLandmarks, &trackedKeypoints, transformationFromWorldToCamera=transformationFromWorldToCamera](size_t i)
             {
@@ -297,25 +375,74 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         geoStereoMsg.sparse_depth_information.points.shrink_to_fit();
         
         // Extracting depths for debugging purposes: TODO: remove this when not needed anymore
-        std::vector<double> depths;
-        depths.reserve(geoStereoMsg.sparse_depth_information.points.size());
-        for (const auto& point : geoStereoMsg.sparse_depth_information.points)
-        {            
-            depths.push_back(point.z);
-        }
+        //std::vector<double> depths;
+        //depths.reserve(geoStereoMsg.sparse_depth_information.points.size());
+        //for (const auto& point : geoStereoMsg.sparse_depth_information.points)
+        //{            
+        //    depths.push_back(point.z);
+        //}
 
         RCLCPP_INFO(this->get_logger(), "Number of landmarks is = %zu, number of keypoints is = %zu, number of depth points in georeferenced stereo image is = %zu", trackedLandmarks.size(), trackedKeypoints.size(), geoStereoMsg.sparse_depth_information.points.size());
 
         RCLCPP_INFO(this->get_logger(), "Publishing georeferenced stereo image with %zu map points.", geoStereoMsg.sparse_depth_information.points.size());
         georeferencedStereoPublisher->publish(geoStereoMsg);
         
+        if (doSaveLocalMapToFile)
+        {
+            std::vector<tf2::Vector3> mapInCameraCoordinateSystem;
+            mapInCameraCoordinateSystem.reserve(trackedLandmarks.size());
+            std::ranges::transform(valid_map_point_indices, std::back_inserter(mapInCameraCoordinateSystem),
+            [&trackedLandmarks, &transformationFromWorldToCamera](size_t i)
+            {
+                ORB_SLAM3::MapPoint* mapPoint = trackedLandmarks[i];
+                const Eigen::Vector3d pointInWorld = mapPoint->GetWorldPos().cast<double>();
+                tf2::Vector3 pointInCameraCs = transformationFromWorldToCamera * tf2::Vector3{pointInWorld(0), pointInWorld(1), pointInWorld(2)};
+                return pointInCameraCs;
+            });
+            mapInCameraCoordinateSystem.shrink_to_fit();
+
+            const auto pathFileLocalMap{std::filesystem::path{pathToSaveLocalMap} / (stampToString(geoStereoMsg.pose.header.stamp) + ".txt")};
+            std::ofstream fileLocalMap{pathFileLocalMap};
+
+            fileLocalMap << std::fixed << std::setprecision(5);
+            for (const auto& point:  mapInCameraCoordinateSystem)
+            {
+                fileLocalMap << point.x() << "," << point.y() << "," << point.z() << "\n";
+            }
+
+            fileLocalMap.close();
+
+        }
+
+        
         //writeMapPointsToFile(trackedLandmarks, trackedKeypoints, previousLeftImage);
         //writeMapPointsToFile(trackedLandmarks, trackedKeypoints, imageFedToTrackerLeft, depths);
 
     }
 
+    if (doPublishTrackedKeypointsVisualization)
+    {
+            cv::Mat imageWithKeypoints;
+            cv::drawKeypoints(m_SLAM->GetImageFedToTrackerLeft(), m_SLAM->GetTrackedKeyPointsUn(), imageWithKeypoints, cv::Scalar(0,255,0));
+            keypointVisualizationPublisher->publish(*cv_bridge::CvImage(poseMsg.header, "rgb8", imageWithKeypoints).toImageMsg());
+    }
+
+    const auto timeOutputHandlingEnd {std::chrono::steady_clock::now()};
+    const auto durationOutputHandling_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeOutputHandlingEnd - timeOutputHandlingStart)};
 
 
+     RCLCPP_INFO(this->get_logger(), "SLAM estimation took: %ld ms, output handling took: %ld ms", durationSLAMEstimation_ms.count(), durationOutputHandling_ms.count());
+
+
+
+}
+
+std::string StereoSlamNode::stampToString(builtin_interfaces::msg::Time stamp) const
+{
+    std::ostringstream oss;
+    oss << std::setw(9) << std::setfill('0') << stamp.nanosec;
+    std::string timeInformationStr {std::to_string(stamp.sec) + "_" +  oss.str()};
+    return timeInformationStr;
 }
 
 void StereoSlamNode::writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*>& mapPoints, const std::vector<cv::KeyPoint>& keyPoints,const cv::Mat& image, const vector<double>& depths)
