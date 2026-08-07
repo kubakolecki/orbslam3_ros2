@@ -6,6 +6,7 @@
 #include "sensor_msgs/msg/point_cloud.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "ros_common_messages/msg/georeferenced_stereo_image.hpp"
 
 #include "message_filters/subscriber.h"
@@ -43,8 +44,15 @@ private:
     bool doRectify;
     cv::Mat M1l,M2l,M1r,M2r;
 
+    float base{0.3};
+    float cameraConstantAfterStereorectification{500.0};
+
     cv_bridge::CvImageConstPtr cv_ptrLeft;
     cv_bridge::CvImageConstPtr cv_ptrRight;
+
+    std_msgs::msg::Float64MultiArray cameraMatrixLeftAfterStereorectification;
+    std_msgs::msg::Float64MultiArray cameraMatrixRightAfterStereorectification;
+    std_msgs::msg::Float64MultiArray transformationRghtToLeftAfterStereorectification;
 
     //cv::Mat previousLeftImage;
     //cv::Mat previousRightImage;

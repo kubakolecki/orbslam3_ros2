@@ -6,6 +6,7 @@
 
 
 #include <geometry_msgs/msg/point32.hpp>
+#include <sensor_msgs/msg/channel_float32.hpp>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/calib3d.hpp>
@@ -147,6 +148,41 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
         
     }
 
+    base = m_SLAM->GetUpdatedBase();
+    cameraConstantAfterStereorectification = m_SLAM->GetParamOfFirstCamera(0);
+
+    cameraMatrixLeftAfterStereorectification.data.reserve(9);
+    cameraMatrixRightAfterStereorectification.data.reserve(9);
+    transformationRghtToLeftAfterStereorectification.data.reserve(16);
+    for (auto i{0}; i<9;++i)
+    {
+        cameraMatrixLeftAfterStereorectification.data.push_back(0.0f);
+        cameraMatrixRightAfterStereorectification.data.push_back(0.0f);
+    }
+
+    for (auto i{0}; i<16;++i)
+    {
+        transformationRghtToLeftAfterStereorectification.data.push_back(0.0f);
+    }
+
+    transformationRghtToLeftAfterStereorectification.data[0] = 1.0f;
+    transformationRghtToLeftAfterStereorectification.data[5] = 1.0f;
+    transformationRghtToLeftAfterStereorectification.data[10] = 1.0f;
+    transformationRghtToLeftAfterStereorectification.data[15] = 1.0f;
+    transformationRghtToLeftAfterStereorectification.data[3] = base;
+
+    cameraMatrixLeftAfterStereorectification.data[0] = m_SLAM->GetParamOfFirstCamera(0);
+    cameraMatrixLeftAfterStereorectification.data[4] = m_SLAM->GetParamOfFirstCamera(1);
+    cameraMatrixLeftAfterStereorectification.data[2] = m_SLAM->GetParamOfFirstCamera(2);
+    cameraMatrixLeftAfterStereorectification.data[5] = m_SLAM->GetParamOfFirstCamera(3);
+    cameraMatrixLeftAfterStereorectification.data[8] = 1.0f;
+
+    cameraMatrixRightAfterStereorectification.data[0] = m_SLAM->GetParamOfFirstCamera(0); //notice that after stereorectification in orbslam, both camera matrices should be the same
+    cameraMatrixRightAfterStereorectification.data[4] = m_SLAM->GetParamOfFirstCamera(1);
+    cameraMatrixRightAfterStereorectification.data[2] = m_SLAM->GetParamOfFirstCamera(2);
+    cameraMatrixRightAfterStereorectification.data[5] = m_SLAM->GetParamOfFirstCamera(3);
+    cameraMatrixRightAfterStereorectification.data[8] = 1.0f;
+
 }
 
 StereoSlamNode::~StereoSlamNode()
@@ -167,9 +203,9 @@ StereoSlamNode::~StereoSlamNode()
     //std::string datetime = oss.str();
 
     //m_SLAM->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_" + datetime + ".txt" );
-    m_SLAM->SaveTrajectoryEuRoC("FullTrajectory_.txt");
 
-
+    const auto pathToSavePosesBaseName{pathToSavePoses.substr(0, pathToSavePoses.find_last_of('.'))};
+    m_SLAM->SaveTrajectoryEuRoC(pathToSavePosesBaseName + "_final_orbsalm_trajectory.txt");
 
 }
 
@@ -201,7 +237,7 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
 
     Sophus::SE3f pose;
 
-    const auto timeSLAMEstimationStart {std::chrono::steady_clock::now()};
+    //const auto timeSLAMEstimationStart {std::chrono::steady_clock::now()};
 
     if (doRectify)
     {
@@ -215,12 +251,12 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         pose = m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
     }
 
-    const auto timeSLAMEstimationEnd {std::chrono::steady_clock::now()};
-    const auto durationSLAMEstimation_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeSLAMEstimationEnd - timeSLAMEstimationStart)};
+    //const auto timeSLAMEstimationEnd {std::chrono::steady_clock::now()};
+    //const auto durationSLAMEstimation_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeSLAMEstimationEnd - timeSLAMEstimationStart)};
    
 
 
-    const auto timeOutputHandlingStart {std::chrono::steady_clock::now()};
+    //const auto timeOutputHandlingStart {std::chrono::steady_clock::now()};
 
     //RCLCPP_INFO(this->get_logger(), "Tracked keypoints: %zu , tracked landmarks: %zu", trackedKeypoints.size(), trackedLandmarks.size());
 
@@ -314,48 +350,40 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         const tf2::Transform transformationFromWorldToCamera = transformationFromCameraToWorld.inverse();
 
         geoStereoMsg.sparse_depth_information.points.reserve(trackedLandmarks.size());
-
-
-        //RCLCPP_INFO(this->get_logger(), "Preparing georeferenced stereo image with %zu tracked landmarks.", trackedLandmarks.size());
-        //RCLCPP_INFO(this->get_logger(), "Preparing georeferenced stereo image with %zu tracked keypoints.", trackedKeypoints.size());
-        /*
-        std::ranges::transform(trackedLandmarks, trackedKeypoints, std::back_inserter(geoStereoMsg.sparse_depth_information.points),
-            [transformationFromWorldToCamera=transformationFromWorldToCamera](ORB_SLAM3::MapPoint* mapPoint, const cv::KeyPoint& keypoint)
-            {   
-                if (mapPoint)
-                {
-                    RCLCPP_INFO(rclcpp::get_logger("StereoSlamNode"), "Processing MapPoint id");
-                    const Eigen::Vector3d pointInWorld = mapPoint->GetWorldPos().cast<double>();
-                    RCLCPP_INFO(rclcpp::get_logger("StereoSlamNode"), "MapPoint position in world: x=%f, y=%f, z=%f", pointInWorld(0), pointInWorld(1), pointInWorld(2));
-                    tf2::Vector3 pointInCameraTf = transformationFromWorldToCamera * tf2::Vector3{pointInWorld(0), pointInWorld(1), pointInWorld(2)};
-                    geometry_msgs::msg::Point32 point;
-                    point.x = keypoint.pt.x;
-                    point.y = keypoint.pt.y;
-                    point.z = pointInCameraTf.z();    
-                    return point;
-                }
-                else
-                {
-                    RCLCPP_WARN(rclcpp::get_logger("StereoSlamNode"), "Null MapPoint encountered while preparing georeferenced stereo image.");
-                    
-                    if (mapPoint == nullptr)
-                    {
-                        RCLCPP_WARN(rclcpp::get_logger("StereoSlamNode"), "MapPoint pointer is null.");
-                    }
-
-                    geometry_msgs::msg::Point32 point;
-                    point.x = keypoint.pt.x;
-                    point.y = keypoint.pt.y;
-                    point.z = -1.0f; // Indicate invalid depth
-                    return point;
-                }
-
-            });
-        */
+        geoStereoMsg.sparse_depth_information.channels.emplace_back();
+        geoStereoMsg.sparse_depth_information.channels.back().name = "uncertainty";
+        geoStereoMsg.sparse_depth_information.channels.back().values.reserve(trackedLandmarks.size());
 
         auto valid_map_point_indices =  std::views::iota(size_t{0}, trackedLandmarks.size()) |
                                         std::views::filter([&trackedLandmarks](size_t i){ return trackedLandmarks[i] != nullptr; }) |
                                         std::views::filter([&trackedLandmarks](size_t i){ return trackedLandmarks[i]->nObs >= 4; }); //TODO: make this a parameter!
+
+        for (const auto i : valid_map_point_indices)
+        {
+            ORB_SLAM3::MapPoint* mapPoint = trackedLandmarks[i];
+            const cv::KeyPoint& keypoint = trackedKeypoints[i];
+
+            const Eigen::Vector3d pointInWorld = mapPoint->GetWorldPos().cast<double>();
+            //TODO: we need to compute only z in camera frame, so we can optimize this by only computing the z component instead of the full transformation
+            tf2::Vector3 pointInCameraTf = transformationFromWorldToCamera * tf2::Vector3{pointInWorld(0), pointInWorld(1), pointInWorld(2)};
+            geometry_msgs::msg::Point32 point;
+            point.x = keypoint.pt.x;
+            point.y = keypoint.pt.y;
+            point.z = pointInCameraTf.z();
+            geoStereoMsg.sparse_depth_information.points.push_back(point);
+
+            //belows formula for accuracy assums that accuracy of image point measurement is 1 px
+            //this formula is Heuristic: it assumes that the more projectinos point has the lower the uncertainty should be
+            float depthUncertainty{point.z * point.z / (cameraConstantAfterStereorectification*base)};
+            depthUncertainty /= sqrt(static_cast<float> (mapPoint->nObs));
+            geoStereoMsg.sparse_depth_information.channels.back().values.push_back(depthUncertainty);
+
+            //std::cout << "projections: " << mapPoint->nObs << " depth: " << point.z << " uncertainty: " << depthUncertainty <<"\n";
+
+
+        }
+
+        /*
         std::ranges::transform(valid_map_point_indices, std::back_inserter(geoStereoMsg.sparse_depth_information.points),
             [&trackedLandmarks, &trackedKeypoints, transformationFromWorldToCamera=transformationFromWorldToCamera](size_t i)
             {
@@ -371,8 +399,14 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
                 point.z = pointInCameraTf.z();
                 return point;
             });
+        */
 
         geoStereoMsg.sparse_depth_information.points.shrink_to_fit();
+        geoStereoMsg.sparse_depth_information.channels.shrink_to_fit();
+
+        geoStereoMsg.camera_matrix_left = cameraMatrixLeftAfterStereorectification;
+        geoStereoMsg.camera_matrix_right = cameraMatrixRightAfterStereorectification;
+        geoStereoMsg.right_to_left_transformation_matrix = transformationRghtToLeftAfterStereorectification;
         
         // Extracting depths for debugging purposes: TODO: remove this when not needed anymore
         //std::vector<double> depths;
@@ -382,9 +416,9 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
         //    depths.push_back(point.z);
         //}
 
-        RCLCPP_INFO(this->get_logger(), "Number of landmarks is = %zu, number of keypoints is = %zu, number of depth points in georeferenced stereo image is = %zu", trackedLandmarks.size(), trackedKeypoints.size(), geoStereoMsg.sparse_depth_information.points.size());
+        //RCLCPP_INFO(this->get_logger(), "Number of landmarks is = %zu, number of keypoints is = %zu, number of depth points in georeferenced stereo image is = %zu", trackedLandmarks.size(), trackedKeypoints.size(), geoStereoMsg.sparse_depth_information.points.size());
 
-        RCLCPP_INFO(this->get_logger(), "Publishing georeferenced stereo image with %zu map points.", geoStereoMsg.sparse_depth_information.points.size());
+        RCLCPP_INFO(this->get_logger(), "\033[36mPublishing georeferenced stereo image with %zu map points.\033[0m", geoStereoMsg.sparse_depth_information.points.size());
         georeferencedStereoPublisher->publish(geoStereoMsg);
         
         if (doSaveLocalMapToFile)
@@ -427,11 +461,11 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
             keypointVisualizationPublisher->publish(*cv_bridge::CvImage(poseMsg.header, "rgb8", imageWithKeypoints).toImageMsg());
     }
 
-    const auto timeOutputHandlingEnd {std::chrono::steady_clock::now()};
-    const auto durationOutputHandling_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeOutputHandlingEnd - timeOutputHandlingStart)};
+    //const auto timeOutputHandlingEnd {std::chrono::steady_clock::now()};
+    //const auto durationOutputHandling_ms {std::chrono::duration_cast<std::chrono::milliseconds>(timeOutputHandlingEnd - timeOutputHandlingStart)};
 
 
-     RCLCPP_INFO(this->get_logger(), "SLAM estimation took: %ld ms, output handling took: %ld ms", durationSLAMEstimation_ms.count(), durationOutputHandling_ms.count());
+     //RCLCPP_INFO(this->get_logger(), "SLAM estimation took: %ld ms, output handling took: %ld ms", durationSLAMEstimation_ms.count(), durationOutputHandling_ms.count());
 
 
 
@@ -533,6 +567,8 @@ void StereoSlamNode::writeMapPointsToFile(const std::vector<ORB_SLAM3::MapPoint*
 
 
 }
+
+
 
 
 
