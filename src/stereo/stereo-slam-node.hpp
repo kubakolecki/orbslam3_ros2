@@ -47,6 +47,8 @@ private:
     float base{0.3};
     float cameraConstantAfterStereorectification{500.0};
 
+    bool debayerSourceImage{false};
+
     cv_bridge::CvImageConstPtr cv_ptrLeft;
     cv_bridge::CvImageConstPtr cv_ptrRight;
 

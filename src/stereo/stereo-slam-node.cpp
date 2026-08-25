@@ -35,6 +35,7 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     auto paramDoPublishTrackedKeypointsVisualizationDescription{rcl_interfaces::msg::ParameterDescriptor{}};
     auto paramDoSaveLocalMapToFileDescription{rcl_interfaces::msg::ParameterDescriptor{}};
     auto paramPathToSaveLocalMapDescription{rcl_interfaces::msg::ParameterDescriptor{}};
+    auto paramDebayerSourceImagesDescription{rcl_interfaces::msg::ParameterDescriptor{}};
 
     
     paramDoPublishStereorectifiedImagesDescription.description = "If True, stereorectified images provided by orbslam are published. The timestamp is same as timestamp of computed pose.";
@@ -44,6 +45,8 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     paramDoPublishTrackedKeypointsVisualizationDescription.description = "If true, the visualization of keypoints is publshed.";
     paramDoSaveLocalMapToFileDescription.description = "If true, the local map is saved to a file.";
     paramPathToSaveLocalMapDescription.description = "The path where the local map will be saved if do_save_local_map_to_file is true.";
+    paramDebayerSourceImagesDescription.description = "If true it will apply opencv convertion gray_raw_bayer_image -> BGR image -> gray image; This param was added to be able to run ETH3D SLAM datasets";
+
 
     this->declare_parameter<bool>("do_publish_stereorectified_images", "true", paramDoPublishStereorectifiedImagesDescription);
     this->declare_parameter<bool>("do_write_poses_to_text_file", "true", paramDoWritePosesToTextFileDescription);
@@ -52,6 +55,7 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     this->declare_parameter<bool>("do_publish_tracked_keypoints_visualization", "true", paramDoPublishTrackedKeypointsVisualizationDescription);
     this->declare_parameter<bool>("do_save_local_map_to_file", "true", paramDoSaveLocalMapToFileDescription);
     this->declare_parameter<std::string>("path_to_save_local_map", "", paramPathToSaveLocalMapDescription);
+    this->declare_parameter<bool>("debayer_source_images", "false", paramDebayerSourceImagesDescription);
 
     doPublishStereorectifiedImages = this->get_parameter("do_publish_stereorectified_images").as_bool();
     doWritePosesToTextFile = this->get_parameter("do_write_poses_to_text_file").as_bool();
@@ -60,6 +64,7 @@ StereoSlamNode::StereoSlamNode(ORB_SLAM3::System* pSLAM, const string &strSettin
     doSaveLocalMapToFile = this->get_parameter("do_save_local_map_to_file").as_bool();
     pathToSaveLocalMap = this->get_parameter("path_to_save_local_map").as_string();
     pathToSavePoses = this->get_parameter("path_to_save_poses").as_string();
+    debayerSourceImage = this->get_parameter("debayer_source_images").as_bool();
     stringstream ss(strDoRectify);
     ss >> boolalpha >> doRectify;
     std::cout<<"do rectify: " << boolalpha << doRectify <<std::endl;
@@ -248,7 +253,20 @@ void StereoSlamNode::GrabStereo(const ImageMsg::SharedPtr msgLeft, const ImageMs
     }
     else
     {
-        pose = m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
+        if (debayerSourceImage)
+        {
+            cv::Mat imLeftBGR, imRightBGR;
+            cv::Mat imLeftGray, imRightGray;
+            cv::cvtColor(cv_ptrLeft->image, imLeftBGR, cv::COLOR_BayerRG2BGR);
+            cv::cvtColor(cv_ptrRight->image, imRightBGR, cv::COLOR_BayerRG2BGR);
+            cv::cvtColor(imLeftBGR, imLeftGray, cv::COLOR_BGR2GRAY);
+            cv::cvtColor(imRightBGR, imRightGray, cv::COLOR_BGR2GRAY);    
+            pose = m_SLAM->TrackStereo(imLeftGray, imRightGray, Utility::StampToSec(msgLeft->header.stamp));
+        }
+        else
+        {
+            pose = m_SLAM->TrackStereo(cv_ptrLeft->image, cv_ptrRight->image, Utility::StampToSec(msgLeft->header.stamp));
+        }
     }
 
     //const auto timeSLAMEstimationEnd {std::chrono::steady_clock::now()};
