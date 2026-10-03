@@ -1,6 +1,6 @@
 # orbslam3_ros2
 Use branch pose_publisher!!!
-Refer to [https://github.com/zang09/ORB-SLAM3-STEREO-FIXED](https://github.com/zang09/ORB-SLAM3-STEREO-FIXED) on how to build. But:
+Refer to [https://github.com/zang09/ORB_SLAM3_ROS2](https://github.com/zang09/ORB_SLAM3_ROS2) on how to build, because this repository is modification of https://github.com/zang09/ORB_SLAM3_ROS2. But:
 first you need to build https://github.com/kubakolecki/ros_common_messages.
 Only valid for stereo slam mode. Few things were fixed. Works with ROS2 Jazzy on Ubuntu 24.04.
 Node publishes pose message so can be used in navigation. It also publishes [GeoreferencedStereoImageMessage](https://github.com/kubakolecki/ros_common_messages/blob/main/msg/GeoreferencedStereoImage.msg).
@@ -9,6 +9,6 @@ This message can be used to publish stereorectified images, pose (left camera), 
 
 
 ## Acknowledgments
-This repository is modification of [https://github.com/zang09/ORB-SLAM3-STEREO-FIXED](https://github.com/zang09/ORB-SLAM3-STEREO-FIXED), which is modification of [this](https://github.com/curryc/ros2_orbslam3) repository.
+This repository is modification of [https://github.com/zang09/ORB_SLAM3_ROS2](https://github.com/zang09/ORB_SLAM3_ROS2).
 Credits to zang09.
 
